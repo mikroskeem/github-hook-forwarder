@@ -8,7 +8,7 @@ from flask import abort
 webhook_secret = bytes(os.environ['WEBHOOK_SECRET'], 'utf-8')
 public_forward_url = os.environ.get('PUBLIC_FORWARD_URL')
 private_forward_url = os.environ.get('PRIVATE_FORWARD_URL')
-
+private_to_public = True if os.environ.get('PRIVATE_TO_PUBLIC') else False
 
 def github_hook(request):
     if request.method != 'POST':
@@ -32,10 +32,22 @@ def github_hook(request):
         if header.startswith('X-Github')
     }
 
-    if private_forward_url and json_body['repository']['private'] is False:
-        requests.post(public_forward_url, json=json_body, headers=github_headers)
+    # skip non-repository related messages
+    if 'repository' not in json_body:
+        return 'OK'
 
-    if public_forward_url:
-        requests.post(private_forward_url, json=json_body, headers=github_headers)
+    is_private = json_body['repository']['private']
+
+    # private repository message
+    if is_private:
+        # try sending to private webhook url
+        if private_forward_url:
+            requests.post(private_forward_url, json=json_body, headers=github_headers)
+        elif private_to_public:
+            # and if that fails... check if user wants to send everything to public url
+            requests.post(public_forward_url, json=json_body, headers=github_headers)
+
+    if public_forward_url and is_private is False:
+        requests.post(public_forward_url, json=json_body, headers=github_headers)
 
     return 'OK'
